@@ -1,5 +1,7 @@
 # Subsonic for MyGo Music
 
+[简体中文](README.zh-CN.md)
+
 A [MyGo Music](https://github.com/egoist/mygo-music) plugin that turns a
 Subsonic-compatible server into a music source: [Navidrome](https://www.navidrome.org),
 Airsonic, Gonic, Supysonic, LMS, Subsonic itself, and the rest of them.
@@ -29,9 +31,23 @@ Open **Settings → Plugins → Subsonic** and fill in:
 | **Username** | The account the plugin uses. |
 | **Password** | The account's password. |
 
-Press **Sign In** to have the plugin check them against the server.
-**Sign Out** only makes the app forget the account until you sign in again, or
-change one of the settings, as Subsonic keeps no session to end.
+Press **Sign In** to have the plugin check them against the server. A sign-in
+belongs to that server address, username and password: change any of the three
+and you sign in again, so a sign-in is never reused for credentials nobody
+checked. A password the server turns down is said in the dialog, rather than
+leaving the old sign-in in place.
+
+The plugin has no sign-in page of its own: **Sign In** checks the three settings
+above, so filling them in and signing in are the same thing. The app's dialog
+speaks of a page because some plugins open one; this one only needs the
+settings.
+
+**Sign Out** only makes the app forget the account until you sign in again, as
+Subsonic keeps no session to end.
+
+What the plugin itself says, such as the sign-in prompts and errors, follows the
+language chosen in the app's settings, English or Simplified Chinese, and is
+English where there's no translation.
 
 Requests are signed the way Subsonic asks: `token = md5(password + salt)`, with
 a fresh salt for each request. The password itself is never sent, and it stays
@@ -101,27 +117,6 @@ their edits, stream choices, lyrics and the plugin's pages.
 Add the topic `mygo-music-plugin` to the repository to have it listed on the
 [plugins page](https://mygo-music.egoist.dev/plugins). A new tag or commit is a
 new version for the app's update check.
-
-## 中文
-
-这是一个给 MyGo Music 用的 Subsonic / Navidrome 插件，支持任何兼容 Subsonic
-API 的服务器（Navidrome、Airsonic、Gonic、Supysonic 等）。
-
-安装：在应用的 **设置 → 插件** 中点 **+**，粘贴仓库地址（或使用上面的
-`mygo-music://install-plugin?repo=...` 链接）。然后在 **设置 → 插件 →
-Subsonic** 中填写服务器地址、用户名和密码。
-
-- 服务器地址可以带路径（如 `https://example.com/music`），也可以不写 `http://`。
-- 点 **登录** 会向服务器核对这组账号；**退出登录** 只是让应用先忘掉这个账号，重新登录或改动设置就会恢复。
-- 请求使用 `md5(密码 + 盐)` 令牌签名，密码本身不会发送，只保存在本机的插件设置里。
-- 插件需要“访问任意网站”的权限，因为服务器地址由你自己填写（包括局域网地址）。
-- 音质：无损 = 原文件（`format=raw`）；高 = mp3 320（本身不超过 320 的 mp3 直接原样播放）；标准 = mp3 128。
-  服务器需要配置好转码（通常需要 `ffmpeg`）。
-- 星标 = 应用里的“喜欢”和“收藏专辑”；播放会向服务器提交 scrobble。
-
-功能：首页推荐、星标歌曲/专辑、搜索与输入建议、艺人/专辑/流派/随机页面、
-播放列表增删改与排序、随机电台、同步歌词、封面。不支持播客、评论、关注艺人——
-Subsonic API 里没有这些。
 
 ## License
 
