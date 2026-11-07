@@ -5,6 +5,7 @@ import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 const PASSWORD = "secret";
 
@@ -80,6 +81,9 @@ function makeLibrary() {
 }
 
 const library = makeLibrary();
+// What the server expects, which a test changes to say the password was
+// changed on the server rather than in the settings.
+let serverPassword = PASSWORD;
 
 function ok(extra) {
   return { "subsonic-response": { status: "ok", version: "1.16.1", ...extra } };
@@ -291,7 +295,7 @@ const httpServer = createServer((req, res) => {
     const user = params.get("u");
     const salt = params.get("s");
     const token = params.get("t");
-    const expected = createHash("md5").update(PASSWORD + (salt || "")).digest("hex");
+    const expected = createHash("md5").update(serverPassword + (salt || "")).digest("hex");
     if (user !== "listener" || !token || token !== expected) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(bad(40, "Wrong username or password")));
@@ -329,6 +333,9 @@ const settings = {
 // What the plugin keeps in host.storage, which outlives the app.
 const storage = {};
 
+// What the sign-in dialog is asked to show while signing in.
+const prompts = [];
+
 globalThis.host = {
   platform: "linux",
   arch: "x64",
@@ -350,6 +357,7 @@ globalThis.host = {
     md5: (text) => createHash("md5").update(String(text)).digest("hex"),
   },
   openURL: () => {},
+  signInPrompt: (prompt) => prompts.push(prompt),
   spawn: () => {
     throw new Error("no programs in tests");
   },
@@ -357,14 +365,19 @@ globalThis.host = {
 
 const plugin = await import("../index.js");
 
-beforeEach(() => {
+beforeEach(async () => {
   settings.server = `http://127.0.0.1:${port}`;
   settings.username = "listener";
   settings.password = PASSWORD;
+  serverPassword = PASSWORD;
   for (const key of Object.keys(storage)) delete storage[key];
   library.reset();
-  // The starred list is cached; a settings change is what drops it.
-  plugin.setSetting({ key: "server" });
+  prompts.length = 0;
+  // Almost every test is about something a signed-in listener does. The tests
+  // about signing in itself sign out or change the settings first.
+  await plugin.signIn();
+  library.requests = [];
+  prompts.length = 0;
 });
 
 const codeOf = async (promise) => {
@@ -373,6 +386,15 @@ const codeOf = async (promise) => {
     return "";
   } catch (e) {
     return e.code || "plain";
+  }
+};
+
+const errorOf = async (promise) => {
+  try {
+    await promise;
+    return null;
+  } catch (e) {
+    return e;
   }
 };
 
@@ -394,7 +416,72 @@ test("account knows who is signed in without asking the server, and signIn check
   assert.equal(me.name, "listener");
 
   settings.password = "wrong";
-  assert.equal(await codeOf(plugin.signIn()), "setup");
+  assert.equal(await codeOf(plugin.signIn()), "plain");
+  // A sign-in that fails leaves nothing that looks signed in.
+  assert.equal(plugin.account(), null);
+});
+
+test("a wrong password is refused with a message, and leaves nothing signed in", async () => {
+  plugin.signOut();
+  settings.password = "wrong";
+  plugin.setSetting({ key: "password" });
+  assert.equal(plugin.account(), null);
+
+  const error = await errorOf(plugin.signIn());
+  // A plain error, so its message is shown as it is, without the app putting
+  // "sign in first" in front of it.
+  assert.equal(error.code, undefined);
+  assert.match(error.message, /Wrong username or password/);
+  // The plugin's sign-in has no page of its own, so the dialog says where the
+  // three settings are.
+  assert.match(error.message, /Settings → Plugins → Subsonic/);
+  assert.equal(storage.session, undefined);
+  assert.equal(plugin.account(), null);
+  // What the dialog is told while signing in, and what it says about the fix.
+  assert.match(prompts[0].text, /Connecting to Subsonic/);
+  assert.match(prompts[prompts.length - 1].text, /Settings → Plugins → Subsonic/);
+});
+
+test("what the plugin says follows the app's language, English when it can't say", async () => {
+  const zh = JSON.parse(readFileSync(new URL("../locales/zh-CN.json", import.meta.url), "utf8"));
+  const original = host.t;
+  const wrongPassword = async () => {
+    plugin.signOut();
+    settings.password = "wrong";
+    plugin.setSetting({ key: "password" });
+    return errorOf(plugin.signIn());
+  };
+
+  // As the app answers when its language is Chinese.
+  host.t = (text) => zh[text] || text;
+  try {
+    const error = await wrongPassword();
+    assert.match(error.message, /用户名或密码错误/);
+    assert.match(error.message, /设置 → 插件 → Subsonic/);
+    assert.match(prompts[0].text, /正在连接 Subsonic/);
+  } finally {
+    host.t = original;
+  }
+
+  // An app that answers nothing, or nothing it can read, gets the English.
+  for (const unusable of [() => "", () => { throw new Error("no language"); }, undefined]) {
+    host.t = unusable;
+    try {
+      const error = await wrongPassword();
+      assert.match(error.message, /Wrong username or password/);
+      assert.match(error.message, /Settings → Plugins → Subsonic/);
+    } finally {
+      host.t = original;
+    }
+  }
+});
+
+test("without a sign-in, browsing asks for one", async () => {
+  plugin.signOut();
+  assert.equal(plugin.account(), null);
+  assert.equal(await codeOf(plugin.home()), "signIn");
+  assert.equal(await codeOf(plugin.search({ query: "song", kind: "tracks", offset: 0 })), "signIn");
+  assert.equal(await codeOf(plugin.stream({ id: "t1", quality: "high" })), "signIn");
 });
 
 test("signIn asks for the account by name, as the server needs", async () => {
@@ -409,20 +496,22 @@ test("signIn asks for the account by name, as the server needs", async () => {
 test("signing out forgets the account until signing in again", async () => {
   plugin.signOut();
   assert.equal(plugin.account(), null);
-  // Only who is signed in is forgotten; what the settings say still browses.
-  assert.equal((await plugin.home()).sections.length > 0, true);
+  // Only who is signed in is forgotten; what the settings say still signs in.
+  assert.equal(await codeOf(plugin.home()), "signIn");
 
   assert.deepEqual(await plugin.signIn(), { id: "listener", name: "listener" });
   assert.equal(plugin.account().name, "listener");
 });
 
-test("a setting filled in anew signs the listener back in", async () => {
-  plugin.signOut();
-  assert.equal(plugin.account(), null);
+test("a setting filled in anew takes the sign-in with it", async () => {
+  assert.deepEqual(plugin.account(), { id: "listener", name: "listener" });
 
-  settings.username = "listener2";
-  plugin.setSetting({ key: "username" });
-  assert.deepEqual(plugin.account(), { id: "listener2", name: "listener2" });
+  // The sign-in was for the old password, and none for the new one, so the
+  // app asks again rather than browsing with credentials nobody checked.
+  settings.password = "another";
+  plugin.setSetting({ key: "password" });
+  assert.equal(plugin.account(), null);
+  assert.equal(await codeOf(plugin.signIn()), "plain");
 });
 
 test("a song, an album and an artist come over with their covers signed", async () => {
@@ -661,8 +750,12 @@ test("playing a song tells the server", async () => {
   assert.deepEqual(library.scrobbles, ["t2"]);
 });
 
-test("a server that refuses the password sends the listener to the settings", async () => {
-  settings.password = "wrong";
-  assert.equal(await codeOf(plugin.liked({ offset: 0 })), "setup");
-  assert.equal(await codeOf(plugin.album({ id: "al1" })), "setup");
+test("a server that refuses the password asks to sign in again", async () => {
+  // The password changed on the server, not in the settings: what was signed
+  // in no longer is, and the app is told to ask again.
+  serverPassword = "changed";
+  assert.equal(await codeOf(plugin.liked({ offset: 0 })), "signIn");
+  assert.equal(plugin.account(), null);
+  assert.equal(storage.session, undefined);
+  assert.equal(await codeOf(plugin.album({ id: "al1" })), "signIn");
 });

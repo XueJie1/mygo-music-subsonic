@@ -44,5 +44,14 @@
   "Fill in the server, username and password in the plugin's settings.": "请在插件设置中填写服务器地址、用户名和密码。",
   "The server address isn't a URL.": "服务器地址不是有效的网址。",
   "The server refused the request.": "服务器拒绝了请求。",
-  "Couldn't reach the server.": "无法连接到服务器。"
+  "Couldn't reach the server.": "无法连接到服务器。",
+  "Wrong username or password.": "用户名或密码错误。",
+  "This server can't sign in with a token. Check the server's authentication settings.": "这台服务器无法用令牌登录，请检查服务器的认证设置。",
+  "The server refused the sign-in.": "服务器拒绝了登录。",
+  "This account isn't allowed to do that.": "这个账号没有权限这样做。",
+  "Sign in to Subsonic to open your music library.": "请先登录 Subsonic，再打开你的音乐库。",
+  "The connection settings changed. Sign in again.": "连接设置已修改，请重新登录。",
+  "This plugin has no sign-in page. It signs in with the server address, username and password in Settings → Plugins → Subsonic. Close this window, check them there, then press Sign In again.": "这个插件没有登录网页：它使用 设置 → 插件 → Subsonic 中的服务器地址、用户名和密码登录。请关闭此窗口，在那里检查后再点登录。",
+  "This plugin has no sign-in page. It signs in with the server address, username and password in Settings → Plugins → Subsonic. Close this window, fill them in there, then press Sign In again.": "这个插件没有登录网页：它使用 设置 → 插件 → Subsonic 中的服务器地址、用户名和密码登录。请关闭此窗口，在那里填写后再点登录。",
+  "Connecting to Subsonic…\nThis plugin has no sign-in page: it uses the account in Settings → Plugins → Subsonic.": "正在连接 Subsonic…\n这个插件没有登录网页：它使用 设置 → 插件 → Subsonic 中的账号。"
 }

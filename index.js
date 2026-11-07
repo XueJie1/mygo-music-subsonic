@@ -12,7 +12,18 @@ const COVER = 600; // the side of a cover asked for, in pixels
 const API_VERSION = "1.16.1"; // what OpenSubsonic servers speak
 const CLIENT = "mygo-music";
 
-const t = (text) => host.t(text);
+// What the plugin says in the listener's language, as the app's settings have
+// it: the app translates from locales/zh-CN.json, and answers the English it
+// was given for a language it has none for. An app that can't say at all gets
+// the English too, rather than an error.
+const t = (text) => {
+  try {
+    const translated = host.t(text);
+    return typeof translated === "string" && translated !== "" ? translated : text;
+  } catch (e) {
+    return text;
+  }
+};
 
 // Settings, as the listener filled them in.
 const setting = (key) => {
@@ -83,22 +94,41 @@ function qs(params) {
   return parts.join("&");
 }
 
-// A refused request: wrong credentials send the listener to the settings,
-// which is where they are; a missing song or album is unavailable.
+// A refused request: the credentials are wrong, which asks to sign in again
+// with the settings; a missing song or album is unavailable.
+const AUTH_REFUSED = [40, 41, 42, 43, 44];
+
 function refused(error) {
   const code = Number(error && error.code) || 0;
   const message = (error && error.message) || t("The server refused the request.");
-  // 40 wrong user or password, 41–44 authentication, 50 not authorized
-  if (code === 40 || code === 41 || code === 42 || code === 43 || code === 44 || code === 50) {
-    return fail("setup", message);
+  if (AUTH_REFUSED.includes(code)) {
+    // What was signed in to no longer is, so the next page asks to sign in
+    // rather than showing a library the server won't answer for. The server's
+    // own text goes: it can say more about the connection than it should.
+    forgetSession();
+    if (code === 40) return fail("signIn", t("Wrong username or password."));
+    if (code === 41) {
+      return fail("signIn", t("This server can't sign in with a token. Check the server's authentication settings."));
+    }
+    return fail("signIn", t("The server refused the sign-in."));
   }
+  // 50 not authorized: the account may browse, just not do this.
+  if (code === 50) return fail("", t("This account isn't allowed to do that."));
   if (code === 70) return fail("unavailable", message);
   return fail("", message);
 }
 
 async function call(method, params, options) {
-  if (!configured()) throw setupNeeded();
-  const post = !!(options && options.post);
+  const opts = options || {};
+  // Signing in is the one request made before there is a sign-in to make it
+  // with; everything else waits for one.
+  if (opts.session === false) {
+    if (!configured()) throw setupNeeded();
+  } else {
+    if (!configured()) throw setupNeeded();
+    if (!session()) throw fail("signIn", t("Sign in to Subsonic to open your music library."));
+  }
+  const post = !!opts.post;
   const all = Object.assign(authParams(), params || {});
   const url = baseURL() + "/rest/" + method;
   let res;
@@ -317,50 +347,103 @@ const shuffled = (items) => {
 // ---------------------------------------------------------------------------
 // Account
 
-// Subsonic has no session to end, so signing out is this app forgetting who
-// is signed in: it's kept here until they sign in again, or fill the settings
-// in anew.
-const SIGNED_OUT = "signedOut";
-const signedOut = () => host.storage.get(SIGNED_OUT) === true;
-function setSignedOut(on) {
-  if (on) host.storage.set(SIGNED_OUT, true);
-  else host.storage.remove(SIGNED_OUT);
+// A sign-in is for one connection: the server address, the account and the
+// password it was checked with. It's kept here so the app knows who listens
+// without asking the server every start, and it goes as soon as any of those
+// three changes, as a sign-in for one server is no sign-in for another.
+const SESSION = "session";
+
+function connectionKey() {
+  return host.crypto.md5(JSON.stringify([serverURL(), username(), password()]));
+}
+
+function session() {
+  if (!configured()) return null;
+  const saved = host.storage.get(SESSION);
+  return saved && saved.key === connectionKey() ? saved : null;
+}
+
+function forgetSession() {
+  host.storage.remove(SESSION);
 }
 
 export function account() {
-  if (!configured() || signedOut()) return null;
-  return { id: username(), name: username() };
+  const saved = session();
+  return saved ? { id: saved.id, name: saved.name } : null;
+}
+
+// What the sign-in dialog says besides the error. Subsonic is signed in to
+// with the three settings and no page of its own, so it says that the page
+// the app's dialog speaks of doesn't exist, and where the account is instead.
+const WHERE_SETTINGS = "This plugin has no sign-in page. It signs in with the server address, username and password in Settings → Plugins → Subsonic. Close this window, check them there, then press Sign In again.";
+
+function showPrompt(text) {
+  // An older app has nowhere to show this but the error.
+  if (typeof host.signInPrompt !== "function") return;
+  try {
+    host.signInPrompt({ text: text });
+  } catch (e) {
+    // The sign-in goes on regardless.
+  }
+}
+
+function signInFailed(error, hint) {
+  const message = (error && error.message) || t("The server refused the sign-in.");
+  showPrompt(hint);
+  // A plain error, so the dialog shows this message as it is: a sign-in code
+  // would have the app put "sign in first" in front of it.
+  return fail("", message + "\n\n" + hint);
 }
 
 export async function signIn() {
-  if (!configured()) throw setupNeeded();
-  // getUser asks about an account by its name, which is another parameter than
-  // the u that signs every request: without it, Navidrome and the rest refuse
-  // it as "missing parameter: 'username'".
-  const answer = await call("getUser", { username: username() });
-  setSignedOut(false);
-  const user = answer.user || {};
-  return {
-    id: user.username || username(),
-    name: user.username || username(),
-  };
+  if (!configured()) {
+    throw signInFailed(
+      setupNeeded(),
+      t("This plugin has no sign-in page. It signs in with the server address, username and password in Settings → Plugins → Subsonic. Close this window, fill them in there, then press Sign In again."),
+    );
+  }
+  // What is signed in now is what this is about to check: it goes first, so a
+  // failure leaves nothing behind that looks signed in.
+  const key = connectionKey();
+  forgetSession();
+  forgetStarred();
+  songs.clear();
+  showPrompt(
+    t("Connecting to Subsonic…\nThis plugin has no sign-in page: it uses the account in Settings → Plugins → Subsonic."),
+  );
+  try {
+    // getUser asks about an account by its name, which is another parameter than
+    // the u that signs every request: without it, Navidrome and the rest refuse
+    // it as "missing parameter: 'username'".
+    const answer = await call("getUser", { username: username() }, { session: false });
+    // The settings can change while the server is asked, and a sign-in for the
+    // old ones isn't one for the new.
+    if (connectionKey() !== key) throw fail("signIn", t("The connection settings changed. Sign in again."));
+    const user = answer.user || {};
+    const name = user.username || username();
+    host.storage.set(SESSION, { key: key, id: name, name: name });
+    return { id: name, name: name };
+  } catch (e) {
+    throw signInFailed(e, t(WHERE_SETTINGS));
+  }
 }
 
 // What the app forgets as the listener signs out: who they are, and what was
 // answered for them.
 export function signOut() {
-  setSignedOut(true);
+  forgetSession();
   forgetStarred();
   songs.clear();
 }
 
-// A setting changed: what was answered with the old one goes, and credentials
-// filled in anew are signed in with as they are.
+// A setting changed: what was answered with the old one goes, and so does a
+// sign-in that no longer fits the settings. The host keeps the new value
+// before it calls this, so account() already answers for it.
 export function setSetting({ key }) {
   if (key === "server" || key === "username" || key === "password") {
-    setSignedOut(false);
     forgetStarred();
     songs.clear();
+    if (!session()) forgetSession();
   }
 }
 
