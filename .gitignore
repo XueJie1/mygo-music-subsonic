@@ -1,0 +1,8 @@
+node_modules/
+.DS_Store
+*.log
+
+# Debug screenshots (local only)
+error1.png
+error2.png
+error3.png

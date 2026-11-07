@@ -1,0 +1,38 @@
+{
+  "id": "subsonic",
+  "name": "Subsonic",
+  "version": "1.0.0",
+  "minAppVersion": "0.1.18",
+  "main": "index.js",
+  "playback": "stream",
+  "permissions": {
+    "network": ["*"]
+  },
+  "settings": [
+    {
+      "key": "server",
+      "label": "Server Address",
+      "help": "The address of your Subsonic, Navidrome or other Subsonic-compatible server, such as https://music.example.com or http://192.168.1.5:4533"
+    },
+    {
+      "key": "username",
+      "label": "Username",
+      "help": "The account the plugin signs in with."
+    },
+    {
+      "key": "password",
+      "label": "Password",
+      "help": "Kept on this computer by the app, in the plugin's settings file. Each request is signed with a token made from it, never sent as it is."
+    }
+  ],
+  "navigation": [
+    { "builtin": "home" },
+    { "builtin": "liked", "title": "Starred Songs" },
+    { "builtin": "savedAlbums", "title": "Starred Albums" },
+    { "title": "Artists", "page": "artists", "icon": "artist" },
+    { "title": "Albums", "page": "albums-all", "icon": "album" },
+    { "title": "Genres", "page": "genres", "icon": "chart" },
+    { "title": "Random", "page": "random", "icon": "star" },
+    { "builtin": "stations", "title": "Radio" }
+  ]
+}

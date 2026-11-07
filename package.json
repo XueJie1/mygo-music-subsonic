@@ -1,0 +1,10 @@
+{
+  "name": "mygo-music-subsonic",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Subsonic and Navidrome support for MyGo Music",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}
