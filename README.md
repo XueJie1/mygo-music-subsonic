@@ -9,7 +9,7 @@ Airsonic, Gonic, Supysonic, LMS, Subsonic itself, and the rest of them.
 With the app installed, open this link:
 
 ```
-mygo-music://install-plugin?repo=owner/mygo-music-subsonic
+mygo-music://install-plugin?repo=XueJie1/mygo-music-subsonic
 ```
 
 or, in **Settings → Plugins**, press **+** and paste the repository address.
